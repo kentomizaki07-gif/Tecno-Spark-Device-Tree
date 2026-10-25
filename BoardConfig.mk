@@ -24,8 +24,6 @@ BOARD_KERNEL_IMAGE_NAME := Image.gz
 
 # Modern AOSP / TWRP prebuilt DTB definitions
 BOARD_PREBUILT_DTBIMAGE_DIR := $(DEVICE_PATH)/prebuilt
-BOARD_PREBUILT_DTB := $(DEVICE_PATH)/prebuilt/dtb.img
-TARGET_PREBUILT_DTB := $(DEVICE_PATH)/prebuilt/dtb.img
 BOARD_INCLUDE_DTB_IN_BOOTIMG := true
 
 # ---- Boot image layout: copied from your stock vendor_boot_a.img header ----
