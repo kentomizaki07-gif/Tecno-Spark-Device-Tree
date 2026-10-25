@@ -1,0 +1,88 @@
+name: Build KN4 OrangeFox 14.1
+
+# Put the CONTENTS of this folder at the root of your own GitHub repo.
+# Then: Actions > Build KN4 OrangeFox 14.1 > Run workflow.
+# Steps follow the public OrangeFox sync/build instructions (see docs/evidence.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_branch:
+        description: "OrangeFox manifest branch"
+        default: "14.1"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 340
+    env:
+      BRANCH: ${{ github.event.inputs.manifest_branch }}
+    steps:
+      - name: Get the device tree (this repo)
+        uses: actions/checkout@v4
+        with:
+          path: tree
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo apt-get clean
+          df -h /
+
+      - name: Prepare the build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git aria2 lz4 cpio rsync
+          git clone --depth 1 https://gitlab.com/OrangeFox/misc/scripts "$HOME/fox-scripts"
+          cd "$HOME/fox-scripts"
+          sudo bash setup/android_build_env.sh
+          git config --global user.name  "builder"
+          git config --global user.email "builder@example.com"
+
+      - name: Sync OrangeFox sources
+        run: |
+          mkdir -p "$HOME/OrangeFox_sync" && cd "$HOME/OrangeFox_sync"
+          git clone --depth 1 https://gitlab.com/OrangeFox/sync.git
+          cd sync
+          ./orangefox_sync.sh --branch "$BRANCH" --path "$HOME/fox_$BRANCH"
+          df -h /
+
+      - name: Copy device tree into the source
+        run: |
+          mkdir -p "$HOME/fox_$BRANCH/device/tecno/KN4"
+          rsync -a --exclude .git --exclude .github tree/ "$HOME/fox_$BRANCH/device/tecno/KN4/"
+
+      - name: Build
+        run: |
+          cd "$HOME/fox_$BRANCH"
+          source build/envsetup.sh
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          source device/tecno/KN4/vendorsetup.sh
+          lunch twrp_KN4-eng
+          mka adbd vendorbootimage 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+
+      - name: Collect results
+        if: always()
+        run: |
+          mkdir -p artifacts
+          OUT="$HOME/fox_$BRANCH/out/target/product/KN4"
+          ls -l "$OUT" 2>/dev/null | tee artifacts/out-listing.txt || true
+          cp build.log artifacts/ 2>/dev/null || true
+          IMG=$(ls "$OUT"/OrangeFox-*.img 2>/dev/null | head -1)
+          [ -z "$IMG" ] && [ -f "$OUT/vendor_boot.img" ] && IMG="$OUT/vendor_boot.img"
+          if [ -n "$IMG" ]; then
+            echo "using $IMG" | tee artifacts/extract.log
+            cp "$IMG" artifacts/vendor_boot_built.img
+            python3 tree/tools/extract_recovery_fragment.py artifacts/vendor_boot_built.img artifacts/recovery.cpio.lz4 | tee -a artifacts/extract.log
+          else
+            echo "no OrangeFox-*.img or vendor_boot.img found in $OUT" | tee artifacts/extract.log
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KN4-orangefox
+          path: artifacts/*
