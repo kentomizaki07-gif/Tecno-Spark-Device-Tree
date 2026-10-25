@@ -60,7 +60,13 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
           source device/tecno/KN4/vendorsetup.sh
-          lunch twrp_KN4-eng
+          # fox_14.1 needs a 3-part lunch name: <product>-<release>-<variant>.
+          # Other 14.1 trees use ap2a; trunk_staging is the fallback.
+          LUNCH_OK=0
+          for rel in ap2a trunk_staging; do
+            if lunch "twrp_KN4-${rel}-eng"; then LUNCH_OK=1; break; fi
+          done
+          [ "$LUNCH_OK" = 1 ] || { echo "lunch failed for every release name" | tee "$GITHUB_WORKSPACE/build.log"; exit 1; }
           mka adbd vendorbootimage 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
 
       - name: Collect results
@@ -70,8 +76,9 @@ jobs:
           OUT="$HOME/fox_$BRANCH/out/target/product/KN4"
           ls -l "$OUT" 2>/dev/null | tee artifacts/out-listing.txt || true
           cp build.log artifacts/ 2>/dev/null || true
-          IMG=$(ls "$OUT"/OrangeFox-*.img 2>/dev/null | head -1)
-          [ -z "$IMG" ] && [ -f "$OUT/vendor_boot.img" ] && IMG="$OUT/vendor_boot.img"
+          # Other 14.1 trees produce out/.../vendor_boot.img plus an OrangeFox-*.zip
+          IMG="$OUT/vendor_boot.img"
+          [ -f "$IMG" ] || IMG=$(ls "$OUT"/OrangeFox-*.img 2>/dev/null | head -1)
           if [ -n "$IMG" ]; then
             echo "using $IMG" | tee artifacts/extract.log
             cp "$IMG" artifacts/vendor_boot_built.img
